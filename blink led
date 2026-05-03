@@ -1,0 +1,146 @@
+/*
+ * Systemes electroniques a base de microcontroleurs
+ *
+ * // but allumer led rouge puis led verte en focntion de si SW2 ou sw3 est appuyé :
+ *
+ */
+
+#include <stdint.h>
+
+			//////////////REGISTRES/////////////////////
+
+//adresse de base des registres de controle du microcontroleur
+#define SYSCON0 0x40000000
+
+//Registre permettant l'activation des horloges de certains modules
+volatile uint32_t *const AHBCLKCTRL0 = (uint32_t*) ( SYSCON0 + 0x200);
+
+//Adresse de base du GPIO port P0
+#define P0_BASE 0x40096000
+
+volatile uint32_t *const P0_PDOR = (uint32_t*) (P0_BASE + 0x40); //Port Data Output
+volatile uint32_t* const P0_PDIR = (uint32_t*) (P0_BASE + 0x50);
+volatile uint32_t *const P0_PDDR = (uint32_t*) (P0_BASE + 0x54); //Port Data Direction
+
+//Adresse Port Control Port 0
+#define PORT0_BASE 0x40116000
+volatile uint32_t *const PORT0_PCR10 = (uint32_t*) (PORT0_BASE + 0xA8);
+volatile uint32_t *const PORT0_PCR23 = (uint32_t*) (PORT0_BASE + 0x80 +4*23);
+volatile uint32_t *const PORT0_PCR27 = (uint32_t*) (PORT0_BASE + 0x80 +4*27);
+volatile uint32_t *const PORT0_PCR6  = (uint32_t*) (PORT0_BASE + 0x80 +4*6);  // CORRECTION 1 : SW3 est sur PORT0 pas PORT1
+
+// declaration des ports
+
+#define P1_BASE 0x40098000
+volatile uint32_t *const P1_PDOR = (uint32_t*) (P1_BASE + 0x40); //Port Data Output
+volatile uint32_t *const P1_PDIR = (uint32_t*) (P1_BASE + 0x50); // CORRECTION 2 : P1_PDIR manquait
+volatile uint32_t *const P1_PDDR = (uint32_t*) (P1_BASE + 0x54); //Port Data Direction
+
+
+#define PORT1_BASE 0x40117000 // Port control
+volatile uint32_t *const PORT1_PCR2 = (uint32_t*) (PORT1_BASE + 0x88);
+
+
+
+ 	 	 ///////////////////////////// PORTS /////////////////////
+
+// leds
+#define LEDR 10 //Indice ligne LEDR
+const uint32_t LEDR_mask = 1 << LEDR; //Masque LEDR
+
+#define LEDG 27
+const uint32_t LEDG_mask =1<< LEDG; //masque led verte
+
+#define LEDB 2
+const uint32_t LEDB_mask =1<< LEDB; //masque led bleu
+
+
+// boutons :
+#define SW2 23
+const uint32_t SW2_mask = 1 << SW2;
+
+#define SW3 6
+const uint32_t SW3_mask =1<< SW3;
+
+
+//fonctions :
+
+void delay (uint32_t ms ){
+	for (int i=0 ;  i < ms ; i++){
+		asm(" NOP");
+	}
+}
+
+void blink(uint32_t time, uint32_t *PORT, uint32_t MASK, uint32_t n) {
+
+    for (int i = 0; i < n; i++) {
+
+        *PORT &= ~MASK;   // ON
+        delay(time);
+
+        *PORT |= MASK;    // OFF
+        delay(time);
+    }
+}
+
+
+// MAIN CODE
+
+
+int main() {
+	*AHBCLKCTRL0 |= 1 << 19; // Activation horloge sur GPIO0
+	*AHBCLKCTRL0 |= 1 << 13; // Activation horloge sur PORT0
+	*AHBCLKCTRL0 |= 1 << 20; // CORRECTION 4 : horloge GPIO1 (LEDB sur P1_2)
+	*AHBCLKCTRL0 |= 1 << 14; // CORRECTION 4 : horloge PORT1 (LEDB sur P1_2)
+
+	*PORT0_PCR10 = 0b0001000000000000; // Configuration PORT ligne 10
+	*PORT0_PCR27 = 0x1000; // CORRECTION 5 : configuration PORT ligne 27 LEDG manquait
+	*PORT0_PCR23 = 0x1000; // Configuration PORT ligne 23 bouton sw2
+	*PORT0_PCR6  = 0x1000; // Configuration PORT ligne 6 pour bouton sw3
+	*PORT1_PCR2  = 0x1000; // CORRECTION 6 : configuration PORT1 ligne 2 LEDB
+
+//1
+	*P0_PDOR |= LEDR_mask ;  // Led rouge : eteindre
+	*P0_PDDR |= LEDR_mask ;  //Ligne en sortie
+//3
+	*P1_PDOR |= LEDB_mask ;  // CORRECTION 7 : Led bleue sur P1_ pas P0_ : eteindre
+	*P1_PDDR |= LEDB_mask ;  // CORRECTION 7 : Ligne en sortie sur P1_
+
+//2
+	*P0_PDOR |= LEDG_mask; // led verte : eteindre
+	*P0_PDDR |= LEDG_mask ;  //Ligne en sortie
+
+	*P0_PDDR &= ~SW2_mask; // SW2, ligne en entree (ce qui est le defaut mais il faut etre explicite)
+	*P0_PDDR &= ~SW3_mask; // SW3, ligne en entree (ce qui est le defaut mais il faut etre explicite)
+
+
+	while (1) {
+
+
+	    if (*P0_PDIR & SW2_mask) {
+
+	        // bouton NON appuyé  état normal
+	        *P1_PDOR |= LEDB_mask;   // BLEU OFF
+	        *P0_PDOR |= LEDR_mask;    // ROUGE OFF
+
+	    } else {
+
+	        // bouton appuyé
+	        *P1_PDOR |= LEDB_mask;    // BLEU OFF
+	        delay(1000);
+
+	        *P0_PDOR &= ~LEDR_mask;   // ROUGE ON
+	    }
+
+	    // blink sur la led bleu
+	    if (!(*P0_PDIR & SW3_mask)) {
+
+	        blink(8000000, P1_PDOR, LEDB_mask, 5);
+
+
+
+	    }
+	}
+
+	return 0;
+}
